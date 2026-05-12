@@ -39,6 +39,9 @@ else
   echo "$count/$total skills | Enter:Preview Ctrl+O:Browser Ctrl+G:Global Ctrl+L:Local Ctrl+M:More Ctrl+F:API ESC:Exit"
 fi
 
+# Blank separator so --header-lines=2 doesn't consume the first item
+echo ""
+
 color_start=""
 color_end=""
 if [[ "$use_ansi" == "true" ]]; then
