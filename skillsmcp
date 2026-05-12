@@ -97,18 +97,18 @@ cmd_search() {
       fzf_extra="--disabled"
     fi
 
-     local reload_cmd="\"$SCRIPT_DIR/lib/generate-list\" --ansi --query {q} --limit $SKILLSMCP_LIMIT"
+     local reload_cmd="\"$SCRIPT_DIR/lib/generate-list\" --ansi --limit $SKILLSMCP_LIMIT --query={q}"
 
     rm -f "$toggle_file" "$more_file"
 
-    selected=$(fzf --ansi --prompt="Skills> " \
+    selected=$("$SCRIPT_DIR/lib/generate-list" --ansi --limit $SKILLSMCP_LIMIT | fzf --ansi \
+      --prompt="Skills> " \
       --header-lines=2 \
       --delimiter="|" \
       --preview-window=up:60% \
        --preview="\"$SCRIPT_DIR/lib/preview\" --remote {1}" \
       --with-nth=2.. \
       $fzf_extra \
-      --bind="start:reload:$reload_cmd" \
       --bind="change:reload:$reload_cmd" \
       --bind="ctrl-f:execute-silent(touch $toggle_file)+abort" \
       --bind="ctrl-m:execute-silent(touch $more_file)+abort" \
