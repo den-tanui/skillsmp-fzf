@@ -103,6 +103,7 @@ cmd_search() {
 
     selected=$("$SCRIPT_DIR/lib/generate-list" --ansi --limit $SKILLSMCP_LIMIT | fzf --ansi \
       --prompt="Skills> " \
+      --header="Start typing to search skillsmp.com" \
       --header-lines=2 \
       --delimiter="|" \
       --preview-window=up:60% \
