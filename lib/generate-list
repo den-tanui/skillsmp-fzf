@@ -34,9 +34,9 @@ count=$(echo "$json" | jq -r '[.skills[] | {githubUrl}] | length')
 
 # Header line: count and keybindings
 if [[ "$mode" == "api" ]]; then
-  echo "$count/$total skills | Enter:Preview Ctrl+O:Browser Ctrl+G:Global Ctrl+L:Local Ctrl+M:More Ctrl+F:fzf ESC:Exit"
+  echo "$count/$total skills | Enter:Preview Ctrl+O:Browser Ctrl+G:Global Ctrl+L:Local Ctrl+E:More Ctrl+F:fzf ESC:Exit"
 else
-  echo "$count/$total skills | Enter:Preview Ctrl+O:Browser Ctrl+G:Global Ctrl+L:Local Ctrl+M:More Ctrl+F:API ESC:Exit"
+  echo "$count/$total skills | Enter:Preview Ctrl+O:Browser Ctrl+G:Global Ctrl+L:Local Ctrl+E:More Ctrl+F:API ESC:Exit"
 fi
 
 # Blank separator so --header-lines=2 doesn't consume the first item

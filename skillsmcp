@@ -41,7 +41,7 @@ cmd_search() {
     echo "  ctrl+o  - Open skill in browser"
     echo "  ctrl+g  - Install globally"
     echo "  ctrl+l  - Install locally"
-    echo "  ctrl+m  - Load more skills (+100)"
+    echo "  ctrl+e  - Load more skills (+100)"
     echo "  ctrl+f  - Toggle API/fzf search"
     echo "  esc     - Cancel"
     echo ""
@@ -112,7 +112,7 @@ cmd_search() {
       $fzf_extra \
       --bind="change:reload:$reload_cmd" \
       --bind="ctrl-f:execute-silent(touch $toggle_file)+abort" \
-      --bind="ctrl-m:execute-silent(touch $more_file)+abort" \
+      --bind="ctrl-e:execute-silent(touch $more_file)+abort" \
       --expect=ctrl-o,ctrl-g,ctrl-l,esc)
 
     local key
