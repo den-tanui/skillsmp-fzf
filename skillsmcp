@@ -41,7 +41,7 @@ cmd_search() {
     echo "  ctrl+o  - Open skill in browser"
     echo "  ctrl+g  - Install globally"
     echo "  ctrl+l  - Install locally"
-    echo "  ctrl+m  - Load more results (pagination)"
+    echo "  ctrl+m  - Load more skills (+100)"
     echo "  ctrl+f  - Toggle API/fzf search"
     echo "  esc     - Cancel"
     echo ""
@@ -77,7 +77,6 @@ cmd_search() {
   query="${new_args[1]:-}"
 
   export SKILLSMCP_LIMIT=$limit
-  export SKILLSMCP_PAGE=1
   export SKILLSMCP_MODE="api"
 
    # Handle --list flag for debugging
@@ -92,7 +91,7 @@ cmd_search() {
   local selected
 
   # Initialize meta file with default header
-  echo "[API p1/?] Enter:Preview Ctrl+O:Browser Ctrl+G:Global Ctrl+L:Local Ctrl+M:NextPage Ctrl+F:fzf ESC:Exit" > "$meta_file"
+  echo "[${SKILLSMCP_LIMIT}/? skills] Enter:Preview Ctrl+O:Browser Ctrl+G:Global Ctrl+L:Local Ctrl+M:More Ctrl+F:fzf ESC:Exit" > "$meta_file"
 
   while true; do
     local fzf_extra=""
@@ -102,7 +101,7 @@ cmd_search() {
       fzf_extra="--disabled"
     fi
 
-     local reload_cmd="\"$SCRIPT_DIR/lib/generate-list\" --ansi {q} $SKILLSMCP_PAGE \"$meta_file\""
+     local reload_cmd="\"$SCRIPT_DIR/lib/generate-list\" --ansi --query {q} --limit $SKILLSMCP_LIMIT --output \"$meta_file\""
     local header=$(cat "$meta_file" 2>/dev/null)
 
     rm -f "$toggle_file" "$more_file"
@@ -110,7 +109,7 @@ cmd_search() {
     selected=$(fzf --ansi --prompt="Skills> " \
       --header="$header" \
       --delimiter="|" \
-      --preview-window=right:60%:wrap \
+      --preview-window=up:60% \
        --preview="\"$SCRIPT_DIR/lib/preview\" --remote {1}" \
       --with-nth=2.. \
       $fzf_extra \
@@ -134,10 +133,10 @@ cmd_search() {
       continue
     fi
 
-    # Load next page
+    # Load more skills (increase limit)
     if [[ -f "$more_file" ]]; then
       rm -f "$more_file"
-      export SKILLSMCP_PAGE=$((SKILLSMCP_PAGE + 1))
+      export SKILLSMCP_LIMIT=$((SKILLSMCP_LIMIT + 100))
       continue
     fi
 
@@ -241,7 +240,7 @@ cmd_list() {
       --prompt="$prompt" \
       --delimiter="|" \
       --with-nth=2.. \
-      --preview-window=right:60%:wrap \
+      --preview-window=up:60% \
       --preview="\"$SCRIPT_DIR/lib/preview\" --local {1}" \
       --expect=enter,ctrl-l,ctrl-o,ctrl-d,ctrl-u,ctrl-t,esc \
       --bind="ctrl-t:execute-silent(touch $toggle_file)+abort")
