@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/api.sh"
+source "$SCRIPT_DIR/github.sh"
+source "$SCRIPT_DIR/config.sh"
+
+mode="${1:-}"
+target="${2:-}"
+
+if [[ "$mode" == "--remote" ]]; then
+  github_url="$target"
+  if [[ -z "$github_url" ]]; then
+    echo "Type to search..."
+    exit 0
+  fi
+  
+  read owner repo branch path <<<"$(github_parse_url "$github_url")"
+  path="${path:-}"
+  skill_path="${path}/SKILL.md"
+  
+  token=$(get_github_token 2>/dev/null || echo "${GITHUB_TOKEN:-}")
+  auth_header=""
+  if [[ -n "$token" ]]; then
+    auth_header="-H \"Authorization: token $token\""
+  fi
+  
+  content=$(eval "curl -s -H \"Accept: application/vnd.github.raw+json\" $auth_header \
+        \"https://api.github.com/repos/\$owner/\$repo/contents/\$skill_path?ref=\$branch\" 2>&1")
+        
+  if echo "$content" | jq -e '.message' >/dev/null 2>&1; then
+    error_msg=$(echo "$content" | jq -r '.message')
+    echo "GitHub API error: $error_msg"
+    exit 0
+  fi
+  
+  if [[ -n "$content" ]]; then
+    echo "$content" | bat -l markdown --color=always 2>/dev/null || echo "$content"
+  else
+    echo "No SKILL.md found at $skill_path"
+  fi
+
+elif [[ "$mode" == "--local" ]]; then
+  skill_file="$target"
+  if [[ -f "$skill_file" ]]; then
+    bat --color=always "$skill_file" 2>/dev/null || cat "$skill_file"
+  else
+    echo "No SKILL.md found at $skill_file"
+  fi
+else
+  echo "Usage: preview --remote <github_url> | --local <path_to_SKILL.md>"
+  exit 1
+fi

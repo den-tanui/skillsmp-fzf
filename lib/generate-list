@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+use_ansi=false
+if [[ "${1:-}" == "--ansi" ]]; then
+  use_ansi=true
+  shift
+fi
+query="${1:-}"
+page="${2:-1}"
+meta_file="${3:-}"
+
+# URL encode query
+encoded_query=""
+if [[ -n "$query" ]]; then
+  encoded_query=$(echo -n "$query" | jq -sRr @uri)
+fi
+
+limit=${SKILLSMCP_LIMIT:-100}
+mode=${SKILLSMCP_MODE:-api}
+
+json=$(curl -s "https://skillsmp.com/api/skills?page=$page&limit=$limit&sortBy=stars&search=$encoded_query")
+
+total_pages=$(echo "$json" | jq -r '.pagination.totalPages // "?"')
+
+if [[ -n "$meta_file" ]]; then
+  if [[ "$mode" == "api" ]]; then
+    echo "[API p$page/$total_pages] Enter:Preview Ctrl+O:Browser Ctrl+G:Global Ctrl+L:Local Ctrl+M:NextPage Ctrl+F:fzf ESC:Exit" > "$meta_file"
+  else
+    echo "[fzf p$page/$total_pages] Enter:Preview Ctrl+O:Browser Ctrl+G:Global Ctrl+L:Local Ctrl+M:NextPage Ctrl+F:API ESC:Exit" > "$meta_file"
+  fi
+fi
+
+color_start=""
+color_end=""
+if [[ "$use_ansi" == "true" ]]; then
+  color_start="\033[1;36m"
+  color_end="\033[0m"
+fi
+
+echo "$json" | jq -r '[.skills[] | {githubUrl, name, description}] | .[] | "\(.githubUrl)|\(.name)|\(.description // "" | gsub("\n"; " "))"' \
+  | awk -F'|' -v cs="$color_start" -v ce="$color_end" '{
+      gsub(/-/," ",$2)
+      n=split($2,w," "); name=""
+      for(i=1;i<=n;i++) name=name (i>1?" ":"") toupper(substr(w[i],1,1)) tolower(substr(w[i],2))
+      desc=$3
+      if(desc=="") printf "%s|%s%s%s\n",$1,cs,name,ce
+      else printf "%s|%s%s%s - %s\n",$1,cs,name,ce,desc
+    }' \
+  | grep -v '^$' | grep -v '^|'

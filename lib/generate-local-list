@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+use_ansi=false
+filter_mode="all"
+paths=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --ansi) use_ansi=true; shift ;;
+    --filter) filter_mode="$2"; shift 2 ;;
+    --filter=*) filter_mode="${1#*=}"; shift ;;
+    -*) shift ;;
+    *) paths+=("$1"); shift ;;
+  esac
+done
+
+# Validate filter_mode
+case "$filter_mode" in
+  local|global|all) ;;
+  *) echo "Error: --filter must be 'local', 'global', or 'all'" >&2; exit 1 ;;
+esac
+
+color_start=""
+color_end=""
+if [[ "$use_ansi" == "true" ]]; then
+  color_start="\033[1;36m"
+  color_end="\033[0m"
+fi
+
+for p in "${paths[@]}"; do
+  if [[ -d "$p" ]]; then
+    abs_p=$(cd "$p" 2>/dev/null && pwd || echo "$p")
+    find "$abs_p" -maxdepth 2 -name "SKILL.md" 2>/dev/null
+  fi
+done | awk -v cs="$color_start" -v ce="$color_end" -v filter="$filter_mode" '
+BEGIN { FS="/" }
+!seen[$0]++ {
+  abs_file = $0
+  slug = $(NF-1)
+  
+  # Determine source: local if path contains .agents/skills
+  is_local = (index(abs_file, ".agents/skills") > 0)
+  
+  # Skip based on filter mode
+  if (filter == "local" && !is_local) next
+  if (filter == "global" && is_local) next
+  
+  slug_fmt = slug
+  gsub(/-/, " ", slug_fmt)
+  n = split(slug_fmt, w, " ")
+  name = ""
+  for(i=1; i<=n; i++) name = name (i>1?" ":"") toupper(substr(w[i],1,1)) tolower(substr(w[i],2))
+  
+  printf "%s|%s%s%s\n", abs_file, cs, name, ce
+}'

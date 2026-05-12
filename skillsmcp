@@ -1,0 +1,462 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/lib"
+
+# Source libraries
+for lib in "$LIB_DIR"/*.sh; do
+  source "$lib"
+done
+
+# Format skill name: nmap-advanced-scanning → Nmap Advanced Scanning
+format_skill_name() {
+  echo "$1" | sed -E 's/-/ /g' | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) tolower(substr($i,2));}1'
+}
+
+# Format skill name for fzf (called in awk)
+format_skill() {
+  while IFS='|' read -r url name desc; do
+    formatted=$(echo "$name" | sed -E 's/-/ /g' | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) tolower(substr($i,2));}1')
+    echo "$url|$formatted"
+  done
+}
+
+# Search command with fzf interface
+# Search command with fzf interface
+cmd_search() {
+  # Handle help flag
+  if [[ "${2:-}" == "--help" ]] || [[ "${2:-}" == "-h" ]]; then
+    echo "Usage: skillsmcp search [query]"
+    echo ""
+    echo "Search for skills using the skillsmcp.com API."
+    echo "Opens an interactive fzf interface to select and install skills."
+    echo ""
+    echo "Options:"
+    echo "  --list         - List results to stdout (no fzf, for debugging)"
+    echo "  --limit N      - Number of results per page (default: 100)"
+    echo ""
+    echo "Keybindings in search:"
+    echo "  enter   - Preview SKILL.md"
+    echo "  ctrl+o  - Open skill in browser"
+    echo "  ctrl+g  - Install globally"
+    echo "  ctrl+l  - Install locally"
+    echo "  ctrl+m  - Load more results (pagination)"
+    echo "  ctrl+f  - Toggle API/fzf search"
+    echo "  esc     - Cancel"
+    echo ""
+    echo "Examples:"
+    echo "  skillsmcp search"
+    echo "  skillsmcp search python"
+    echo "  skillsmcp search --list nmap"
+    echo "  skillsmcp search --limit 50"
+    exit 0
+  fi
+
+  # Parse --limit flag
+  local limit=100
+  local query=""
+  local args=("$@")
+  local is_list=false
+  
+  for i in "${!args[@]}"; do
+    if [[ "${args[$i]}" == "--limit" ]]; then
+      limit="${args[$i+1]:-100}"
+      unset 'args[i]' 'args[i+1]'
+    elif [[ "${args[$i]}" == "--list" ]]; then
+      is_list=true
+      unset 'args[i]'
+    fi
+  done
+  
+  # Rebuild args array to get query
+  local new_args=()
+  for arg in "${args[@]}"; do
+    new_args+=("$arg")
+  done
+  query="${new_args[1]:-}"
+
+  export SKILLSMCP_LIMIT=$limit
+  export SKILLSMCP_PAGE=1
+  export SKILLSMCP_MODE="api"
+
+   # Handle --list flag for debugging
+   if [[ "$is_list" == "true" ]]; then
+     "$SCRIPT_DIR/lib/generate-list" "$query"
+     exit 0
+   fi
+
+  local toggle_file="/tmp/skillsmcp-toggle-$$"
+  local more_file="/tmp/skillsmcp-more-$$"
+  local meta_file="/tmp/skillsmcp-meta-$$"
+  local selected
+
+  # Initialize meta file with default header
+  echo "[API p1/?] Enter:Preview Ctrl+O:Browser Ctrl+G:Global Ctrl+L:Local Ctrl+M:NextPage Ctrl+F:fzf ESC:Exit" > "$meta_file"
+
+  while true; do
+    local fzf_extra=""
+    if [[ "$SKILLSMCP_MODE" == "fzf" ]]; then
+      fzf_extra="--enabled"
+    else
+      fzf_extra="--disabled"
+    fi
+
+     local reload_cmd="\"$SCRIPT_DIR/lib/generate-list\" --ansi {q} $SKILLSMCP_PAGE \"$meta_file\""
+    local header=$(cat "$meta_file" 2>/dev/null)
+
+    rm -f "$toggle_file" "$more_file"
+
+    selected=$(fzf --ansi --prompt="Skills> " \
+      --header="$header" \
+      --delimiter="|" \
+      --preview-window=right:60%:wrap \
+       --preview="\"$SCRIPT_DIR/lib/preview\" --remote {1}" \
+      --with-nth=2.. \
+      $fzf_extra \
+      --bind="start:reload:$reload_cmd" \
+      --bind="change:reload:$reload_cmd" \
+      --bind="ctrl-f:execute-silent(touch $toggle_file)+abort" \
+      --bind="ctrl-m:execute-silent(touch $more_file)+abort" \
+      --expect=ctrl-o,ctrl-g,ctrl-l,esc)
+
+    local key
+    key=$(echo "$selected" | head -1)
+
+    # Toggle API/fzf search mode
+    if [[ -f "$toggle_file" ]]; then
+      rm -f "$toggle_file"
+      if [[ "$SKILLSMCP_MODE" == "api" ]]; then
+        export SKILLSMCP_MODE="fzf"
+      else
+        export SKILLSMCP_MODE="api"
+      fi
+      continue
+    fi
+
+    # Load next page
+    if [[ -f "$more_file" ]]; then
+      rm -f "$more_file"
+      export SKILLSMCP_PAGE=$((SKILLSMCP_PAGE + 1))
+      continue
+    fi
+
+    break
+  done
+
+  rm -f "$toggle_file" "$more_file" "$meta_file"
+
+  local key
+  key=$(echo "$selected" | head -1)
+  local choice
+  choice=$(echo "$selected" | tail -1)
+
+  # Handle ESC gracefully
+  if [[ -z "$key" ]] || [[ "$key" == "esc" ]]; then
+    echo "Cancelled"
+    exit 0
+  fi
+
+  case "$key" in
+  ctrl-o) open "$(echo "$choice" | cut -d"|" -f1)" ;;
+  ctrl-g) install_global "$choice" ;;
+  ctrl-l) install_local "$choice" ;;
+  esac
+}
+
+install_global() {
+  local choice="$1"
+  local github_url=$(echo "$choice" | cut -d"|" -f1)
+  
+  read owner repo branch path <<<"$(github_parse_url "$github_url")"
+  local slug=$(basename "${path:-$repo}")
+
+  local global_path=$(config_get "skillPaths" | head -1)
+  mkdir -p "$global_path"
+  install_skill "$github_url" "$global_path/$slug"
+  echo "Installed to $global_path/$slug"
+}
+
+install_local() {
+  local choice="$1"
+  local github_url=$(echo "$choice" | cut -d"|" -f1)
+  
+  read owner repo branch path <<<"$(github_parse_url "$github_url")"
+  local slug=$(basename "${path:-$repo}")
+
+  local local_path="./.agents/skills"
+  mkdir -p "$local_path"
+  install_skill "$github_url" "$local_path/$slug"
+  echo "Installed to $local_path/$slug"
+}
+
+# List installed skills with update and remove functionality
+cmd_list() {
+  # Handle help flag
+  if [[ "${2:-}" == "--help" ]] || [[ "${2:-}" == "-h" ]]; then
+    echo "Usage: skillsmcp list"
+    echo ""
+    echo "List installed skills with options to update or remove them."
+    echo "Opens an interactive fzf interface."
+    echo ""
+    echo "Keybindings:"
+    echo "  enter   - Copy skill to local project (.agents/skills)"
+    echo "  ctrl+l  - Symlink skill to local project (.agents/skills)"
+    echo "  ctrl+o  - Open in browser"
+    echo "  ctrl+d  - Remove skill"
+    echo "  ctrl+u  - Update skill"
+    echo "  ctrl+t  - Toggle filter (All/Local/Global)"
+    echo "  esc     - Exit"
+    exit 0
+  fi
+
+  local filter_modes=("all" "local" "global")
+  local filter_labels=("All" "Local" "Global")
+  local filter_idx=0
+  local toggle_file="/tmp/skillsmcp-list-toggle-$$"
+
+  local paths=()
+  paths+=("./.agents/skills")
+  while read -r p; do
+    [[ -n "$p" ]] && paths+=("$p")
+  done <<< "$(config_get "skillPaths")"
+
+  local skills=""
+
+  while true; do
+    local current_filter="${filter_modes[$filter_idx]}"
+    local current_label="${filter_labels[$filter_idx]}"
+    local prompt="${current_label} skills> "
+
+    skills=$("$SCRIPT_DIR/lib/generate-local-list" --ansi --filter "$current_filter" "${paths[@]}")
+
+    if [[ -z "$skills" ]]; then
+      echo "No skills found in ${current_label} scope"
+      exit 0
+    fi
+
+    rm -f "$toggle_file"
+
+    local selected=$(echo "$skills" | fzf --ansi \
+      --prompt="$prompt" \
+      --delimiter="|" \
+      --with-nth=2.. \
+      --preview-window=right:60%:wrap \
+      --preview="\"$SCRIPT_DIR/lib/preview\" --local {1}" \
+      --expect=enter,ctrl-l,ctrl-o,ctrl-d,ctrl-u,ctrl-t,esc \
+      --bind="ctrl-t:execute-silent(touch $toggle_file)+abort")
+
+    local key=$(echo "$selected" | head -1)
+    local choice=$(echo "$selected" | tail -1)
+
+    # Toggle filter mode
+    if [[ -f "$toggle_file" ]]; then
+      rm -f "$toggle_file"
+      filter_idx=$(( (filter_idx + 1) % 3 ))
+      continue
+    fi
+
+    # Handle ESC or empty selection
+    if [[ -z "$key" ]] || [[ "$key" == "esc" ]]; then
+      echo "Exited"
+      exit 0
+    fi
+
+    # Handle Enter key (may be empty string if Enter is default accept)
+    if [[ -z "$key" ]]; then
+      key="enter"
+    fi
+
+    # Execute action for selected key
+    case "$key" in
+      enter) copy_skill_local "$choice" ;;
+      ctrl-l) symlink_skill_local "$choice" ;;
+      ctrl-o) cmd_open_browser "$(echo "$choice" | cut -d"|" -f1)" ;;
+      ctrl-d) remove_skill "$choice" ;;
+      ctrl-u) update_skill "$choice" ;;
+      ctrl-t) ;; # Handled above
+    esac
+
+    break
+  done
+
+  rm -f "$toggle_file"
+}
+
+copy_skill_local() {
+  local choice="$1"
+  local abs_file=$(echo "$choice" | cut -d"|" -f1)
+  local name=$(echo "$choice" | cut -d"|" -f2 | sed 's/\x1b\[[0-9;]*m//g')
+  local src_dir=$(dirname "$abs_file")
+  local slug=$(basename "$src_dir")
+  local dest_dir="./.agents/skills/$slug"
+
+  local abs_dest=$(cd "./.agents/skills" 2>/dev/null && pwd || echo "$PWD/.agents/skills")
+  abs_dest="$abs_dest/$slug"
+
+  if [[ "$src_dir" == "$abs_dest" ]]; then
+    echo "Skill is already in local project path"
+    exit 0
+  fi
+
+  mkdir -p "./.agents/skills"
+  cp -r "$src_dir" "$dest_dir"
+  echo "Copied $name to $dest_dir"
+}
+
+symlink_skill_local() {
+  local choice="$1"
+  local abs_file=$(echo "$choice" | cut -d"|" -f1)
+  local name=$(echo "$choice" | cut -d"|" -f2 | sed 's/\x1b\[[0-9;]*m//g')
+  local src_dir=$(dirname "$abs_file")
+  local slug=$(basename "$src_dir")
+  local dest_dir="./.agents/skills/$slug"
+
+  local abs_dest=$(cd "./.agents/skills" 2>/dev/null && pwd || echo "$PWD/.agents/skills")
+  abs_dest="$abs_dest/$slug"
+
+  if [[ "$src_dir" == "$abs_dest" ]]; then
+    echo "Skill is already in local project path"
+    exit 0
+  fi
+
+  mkdir -p "./.agents/skills"
+  ln -s "$src_dir" "$dest_dir"
+  echo "Symlinked $name to $dest_dir"
+}
+
+remove_skill() {
+  local choice="$1"
+  local abs_file=$(echo "$choice" | cut -d"|" -f1)
+  local name=$(echo "$choice" | cut -d"|" -f2 | sed 's/\x1b\[[0-9;]*m//g')
+  local path=$(dirname "$abs_file")
+  local slug=$(basename "$path")
+
+  rm -rf "$path"
+  state_remove_skill "$slug"
+  echo "Removed $name"
+}
+
+update_skill() {
+  local choice="$1"
+  local abs_file=$(echo "$choice" | cut -d"|" -f1)
+  local name=$(echo "$choice" | cut -d"|" -f2 | sed 's/\x1b\[[0-9;]*m//g')
+  local path=$(dirname "$abs_file")
+  local slug=$(basename "$path")
+
+  local state=$(state_read)
+  local github_url=$(echo "$state" | jq -r ".skills[\"$slug\"].githubUrl // empty")
+  local current_sha=$(echo "$state" | jq -r ".skills[\"$slug\"].sha // empty")
+
+  if [[ -z "$github_url" ]]; then
+    echo "Cannot update $name: Not installed via skillsmcp (no GitHub URL found)"
+    exit 1
+  fi
+
+  # Parse URL
+  read owner repo branch remote_path <<<"$(github_parse_url "$github_url")"
+  local new_sha=$(github_get_sha "$owner" "$repo" "${remote_path}/SKILL.md" "$branch")
+
+  if [[ "$current_sha" == "$new_sha" ]] || [[ -z "$new_sha" ]]; then
+    echo "Already up to date"
+    exit 0
+  fi
+
+  # Re-download
+  rm -rf "$path"
+  install_skill "$github_url" "$path" "$branch"
+  echo "Updated $name"
+}
+
+cmd_open_browser() {
+  local abs_file="$1"
+  local path=$(dirname "$abs_file")
+  local slug=$(basename "$path")
+  
+  local state=$(state_read)
+  local github_url=$(echo "$state" | jq -r ".skills[\"$slug\"].githubUrl // empty")
+  
+  if [[ -n "$github_url" ]]; then
+    open "$github_url"
+  else
+    echo "Cannot open browser: Not installed via skillsmcp (no GitHub URL found)"
+  fi
+}
+
+# Config subcommand
+cmd_config() {
+  # Handle help flag
+  if [[ "${2:-}" == "--help" ]] || [[ "${2:-}" == "-h" ]]; then
+    echo "Usage: skillsmcp config [command]"
+    echo ""
+    echo "Commands:"
+    echo "  show           - Show current configuration"
+    echo "  paths          - List configured skill paths"
+    echo "  add-path <path> - Add a new skill path"
+    echo "  default        - Show default install location"
+    echo "  set-default    - Set default install (global|local)"
+    echo ""
+    echo "Examples:"
+    echo "  skillsmcp config show"
+    echo "  skillsmcp config paths"
+    echo "  skillsmcp config add-path ~/.agents/skills"
+    echo "  skillsmcp config set-default global"
+    exit 0
+  fi
+
+  case "${2:-show}" in
+  show)
+    cat "$CONFIG_FILE"
+    ;;
+  paths)
+    config_get "skillPaths"
+    ;;
+  add-path)
+    local new_path="${3:-}"
+    if [[ -z "$new_path" ]]; then
+      echo "Usage: skillsmcp config add-path <path>"
+      exit 1
+    fi
+    # Add to skillPaths array using jq
+    local tmp=$(mktemp)
+    jq ".skillPaths += [\"$new_path\"]" "$CONFIG_FILE" >"$tmp" && mv "$tmp" "$CONFIG_FILE"
+    echo "Added $new_path to skillPaths"
+    ;;
+  default)
+    config_get "defaultInstall"
+    ;;
+  set-default)
+    local value="${3:-}"
+    if [[ "$value" != "global" ]] && [[ "$value" != "local" ]]; then
+      echo "Usage: skillsmcp config set-default {global|local}"
+      exit 1
+    fi
+    local tmp=$(mktemp)
+    jq ".defaultInstall = \"$value\"" "$CONFIG_FILE" >"$tmp" && mv "$tmp" "$CONFIG_FILE"
+    echo "Default install set to $value"
+    ;;
+  *)
+    echo "Usage: skillsmcp config {show|paths|add-path|default|set-default}"
+    ;;
+  esac
+}
+
+# Parse subcommand
+case "${1:-search}" in
+search) cmd_search "$@" ;;
+list) cmd_list "$@" ;;
+config) cmd_config "$@" ;;
+_open_browser) cmd_open_browser "${2:-}" ;;
+p | --help | -h)
+  echo "Usage: skillsmcp <command> [options]"
+  echo ""
+  echo "Commands:"
+  echo "  search [query]  - Search and install skills (interactive)"
+  echo "  list            - List installed skills"
+  echo "  config          - Manage configuration"
+  echo "  help            - Show this help message"
+  echo ""
+  echo "Run 'skillsmcp <command> --help' for more details on a command."
+  ;;
+*) echo "Unknown command: $1" && exit 1 ;;
+esac
