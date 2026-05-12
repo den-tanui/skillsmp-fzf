@@ -87,11 +87,7 @@ cmd_search() {
 
   local toggle_file="/tmp/skillsmcp-toggle-$$"
   local more_file="/tmp/skillsmcp-more-$$"
-  local meta_file="/tmp/skillsmcp-meta-$$"
   local selected
-
-  # Initialize meta file with default header
-  echo "[${SKILLSMCP_LIMIT}/? skills] Enter:Preview Ctrl+O:Browser Ctrl+G:Global Ctrl+L:Local Ctrl+M:More Ctrl+F:fzf ESC:Exit" > "$meta_file"
 
   while true; do
     local fzf_extra=""
@@ -101,13 +97,12 @@ cmd_search() {
       fzf_extra="--disabled"
     fi
 
-     local reload_cmd="\"$SCRIPT_DIR/lib/generate-list\" --ansi --query {q} --limit $SKILLSMCP_LIMIT --output \"$meta_file\""
-    local header=$(cat "$meta_file" 2>/dev/null)
+     local reload_cmd="\"$SCRIPT_DIR/lib/generate-list\" --ansi --query {q} --limit $SKILLSMCP_LIMIT"
 
     rm -f "$toggle_file" "$more_file"
 
     selected=$(fzf --ansi --prompt="Skills> " \
-      --header="$header" \
+      --header-lines=2 \
       --delimiter="|" \
       --preview-window=up:60% \
        --preview="\"$SCRIPT_DIR/lib/preview\" --remote {1}" \
@@ -143,7 +138,7 @@ cmd_search() {
     break
   done
 
-  rm -f "$toggle_file" "$more_file" "$meta_file"
+  rm -f "$toggle_file" "$more_file"
 
   local key
   key=$(echo "$selected" | head -1)

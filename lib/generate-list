@@ -5,7 +5,6 @@ use_ansi=false
 query=""
 page=1
 limit=100
-meta_file=""
 mode="${SKILLSMCP_MODE:-api}"
 
 while [[ $# -gt 0 ]]; do
@@ -17,8 +16,6 @@ while [[ $# -gt 0 ]]; do
     --page=*) page="${1#*=}"; shift ;;
     --limit) limit="$2"; shift 2 ;;
     --limit=*) limit="${1#*=}"; shift ;;
-    --output) meta_file="$2"; shift 2 ;;
-    --output=*) meta_file="${1#*=}"; shift ;;
     -*) shift ;;
     *) query="$1"; shift ;;
   esac
@@ -33,13 +30,16 @@ fi
 json=$(curl -s "https://skillsmp.com/api/skills?page=$page&limit=$limit&sortBy=stars&search=$encoded_query")
 
 total=$(echo "$json" | jq -r '.pagination.total // "?"')
+count=$(echo "$json" | jq -r '[.skills[] | {githubUrl}] | length')
 
-if [[ -n "$meta_file" ]]; then
-  if [[ "$mode" == "api" ]]; then
-    echo "[$limit/$total skills] Enter:Preview Ctrl+O:Browser Ctrl+G:Global Ctrl+L:Local Ctrl+M:More Ctrl+F:fzf ESC:Exit" > "$meta_file"
-  else
-    echo "[$limit/$total skills] Enter:Preview Ctrl+O:Browser Ctrl+G:Global Ctrl+L:Local Ctrl+M:More Ctrl+F:API ESC:Exit" > "$meta_file"
-  fi
+# Header line 1: skill count
+echo "$count/$total skills"
+
+# Header line 2: keybindings
+if [[ "$mode" == "api" ]]; then
+  echo "Enter:Preview Ctrl+O:Browser Ctrl+G:Global Ctrl+L:Local Ctrl+M:More Ctrl+F:fzf ESC:Exit"
+else
+  echo "Enter:Preview Ctrl+O:Browser Ctrl+G:Global Ctrl+L:Local Ctrl+M:More Ctrl+F:API ESC:Exit"
 fi
 
 color_start=""
