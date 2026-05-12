@@ -85,61 +85,57 @@ cmd_search() {
      exit 0
    fi
 
-  local toggle_file="/tmp/skillsmcp-toggle-$$"
-  local more_file="/tmp/skillsmcp-more-$$"
-  local selected
+   local toggle_file="/tmp/skillsmcp-toggle-$$"
+   local limit_file="/tmp/skillsmcp-limit-$$"
+   local selected
 
-  while true; do
-    local fzf_extra=""
-    if [[ "$SKILLSMCP_MODE" == "fzf" ]]; then
-      fzf_extra="--enabled"
-    else
-      fzf_extra="--disabled"
-    fi
+   echo "$SKILLSMCP_LIMIT" > "$limit_file"
 
-     local reload_cmd="\"$SCRIPT_DIR/lib/generate-list\" --ansi --limit $SKILLSMCP_LIMIT --query={q}"
+   while true; do
+     local fzf_extra=""
+     if [[ "$SKILLSMCP_MODE" == "fzf" ]]; then
+       fzf_extra="--enabled"
+     else
+       fzf_extra="--disabled"
+     fi
 
-    rm -f "$toggle_file" "$more_file"
+     local inc_cmd="v=\$(cat \"$limit_file\"); echo \$((v + 100)) > \"$limit_file\""
+     local reload_cmd="\"$SCRIPT_DIR/lib/generate-list\" --ansi --limit \$(cat \"$limit_file\") --query={q}"
 
-    selected=$("$SCRIPT_DIR/lib/generate-list" --ansi --limit $SKILLSMCP_LIMIT | fzf --ansi \
-      --prompt="Skills> " \
-      --header="Start typing to search skillsmp.com" \
-      --header-lines=2 \
-      --delimiter="|" \
-      --preview-window=up:60% \
-       --preview="\"$SCRIPT_DIR/lib/preview\" --remote {1}" \
-      --with-nth=2.. \
-      $fzf_extra \
-      --bind="change:reload:$reload_cmd" \
-      --bind="ctrl-f:execute-silent(touch $toggle_file)+abort" \
-      --bind="ctrl-e:execute-silent(touch $more_file)+abort" \
-      --expect=ctrl-o,ctrl-g,ctrl-l,esc)
+     rm -f "$toggle_file"
 
-    local key
-    key=$(echo "$selected" | head -1)
+     selected=$("$SCRIPT_DIR/lib/generate-list" --ansi --limit $(cat "$limit_file") | fzf --ansi \
+       --prompt="Skills> " \
+       --header="Start typing to search skillsmp.com" \
+       --header-lines=2 \
+       --delimiter="|" \
+       --preview-window=up:60% \
+        --preview="\"$SCRIPT_DIR/lib/preview\" --remote {1}" \
+       --with-nth=2.. \
+       $fzf_extra \
+       --bind="change:reload:$reload_cmd" \
+       --bind="ctrl-f:execute-silent(touch $toggle_file)+abort" \
+       --bind="ctrl-e:execute-silent[$inc_cmd]+reload[$reload_cmd]" \
+       --expect=ctrl-o,ctrl-g,ctrl-l,esc)
 
-    # Toggle API/fzf search mode
-    if [[ -f "$toggle_file" ]]; then
-      rm -f "$toggle_file"
-      if [[ "$SKILLSMCP_MODE" == "api" ]]; then
-        export SKILLSMCP_MODE="fzf"
-      else
-        export SKILLSMCP_MODE="api"
-      fi
-      continue
-    fi
+     local key
+     key=$(echo "$selected" | head -1)
 
-    # Load more skills (increase limit)
-    if [[ -f "$more_file" ]]; then
-      rm -f "$more_file"
-      export SKILLSMCP_LIMIT=$((SKILLSMCP_LIMIT + 100))
-      continue
-    fi
+     # Toggle API/fzf search mode
+     if [[ -f "$toggle_file" ]]; then
+       rm -f "$toggle_file"
+       if [[ "$SKILLSMCP_MODE" == "api" ]]; then
+         export SKILLSMCP_MODE="fzf"
+       else
+         export SKILLSMCP_MODE="api"
+       fi
+       continue
+     fi
 
-    break
-  done
+     break
+   done
 
-  rm -f "$toggle_file" "$more_file"
+   rm -f "$toggle_file" "$limit_file"
 
   local key
   key=$(echo "$selected" | head -1)
